@@ -381,7 +381,7 @@ protected:
      *  @brief Called after any WNC14A2A operation to determine error specifics 
      *  @param none.
      */
-    uint16_t wnc14a2a_chk_error(void) { return _errors; }
+    uint16_t wnc14a2a_chk_error(void) { return m_errors; }
 
 
 private:
@@ -392,12 +392,12 @@ private:
     unsigned m_debug;
 
     WncIpStats myNetStats;                  //maintaint the network statistics
-    WncControllerK64F_fk::WncControllerK64F *_pwnc; //pointer to the WncController instance
+    WncControllerK64F_fk::WncControllerK64F *m_pwnc; //pointer to the WncController instance
 
     int m_active_socket;                    // a 'pseudo' global to track the active socket
     WNCDebug *_debugUart;                     // Serial object for parser to communicate with radio
     char *_fatal_err_loc;                   // holds string containing location of fatal error
-    nsapi_error_t _errors;
+    nsapi_error_t m_errors;
 
     bool m_smsmoning;                       // Track if the SMS monitoring thread is running
     EventQueue sms_queue;                   // Queue used to schedule for SMS checks

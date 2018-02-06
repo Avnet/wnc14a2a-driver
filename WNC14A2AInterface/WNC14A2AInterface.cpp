@@ -96,23 +96,19 @@ BufferedSerial   mdmUart(PTD3,PTD2,UART_BUFF_SIZE,1); //UART for WNC Module
 *
 *  @brief    May be invoked with or without the debug pointer.
 *  @note     After the constructor has completed, call check 
-*  _errors to determine if any errors occured. Possible values:
+*  m_errors to determine if any errors occured. Possible values:
 *           NSAPI_ERROR_UNSUPPORTED 
 *           NSAPI_ERROR_DEVICE_ERROR
 */
 WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) : 
  m_wncpoweredup(0),
- _pwnc(NULL),
+ m_debug(0),
+ m_pwnc(NULL),
  m_active_socket(-1),
+ m_errors(NSAPI_ERROR_OK),
  m_smsmoning(0)
 {
-    _errors = NSAPI_ERROR_OK;  //tracks internal driver errors only
-    m_debug=0;                 //for internal driver debug
 
-    if( _pwnc ) {              //only a single instance allowed
-        _errors =  NSAPI_ERROR_UNSUPPORTED;
-        return;
-        }
     memset(_mac_address,0x00,sizeof(_mac_address));
     for( int i=0; i<WNC14A2A_SOCKET_COUNT; i++ ) {
         _sockets[i].socket = i;
@@ -123,23 +119,19 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
         }
 
     _debugUart = dbg;           
-    if( dbg != NULL ) 
-        _pwnc = new WncControllerK64F(&wncPinList, &mdmUart, dbg);
-    else 
-        _pwnc = new WncControllerK64F_fk::WncControllerK64F(&wncPinList, &mdmUart, NULL);
+    m_pwnc = new WncControllerK64F(&wncPinList, &mdmUart, dbg);
         
-    if( !_pwnc ) {
+    if( !m_pwnc ) {
         debugOutput("FAILED to open WncControllerK64!");
-        _errors = NSAPI_ERROR_DEVICE_ERROR;
+        m_errors = NSAPI_ERROR_DEVICE_ERROR;
         }
 
-    isrThread.start(callback(&isr_queue,&EventQueue::dispatch_forever));
 }
 
 //! Standard destructor
 WNC14A2AInterface::~WNC14A2AInterface()
 {
-    delete _pwnc;  //free the existing WncControllerK64F object
+    delete m_pwnc;  //free the existing WncControllerK64F object
 }
 
 
@@ -152,8 +144,10 @@ nsapi_error_t WNC14A2AInterface::connect()   //can be called with no arguments o
 nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, const char *password) 
 {
     debugOutput("ENTER connect(apn,user,pass)");
-    if( !_pwnc )
-        return (_errors=NSAPI_ERROR_NO_CONNECTION);
+
+    isrThread.start(callback(&isr_queue,&EventQueue::dispatch_forever));
+    if( !m_pwnc )
+        return (m_errors=NSAPI_ERROR_NO_CONNECTION);
 
     if (!apn)
         apn = "m2m.com.attz";
@@ -161,19 +155,19 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
     _pwnc_mutex.lock();
     if (!m_wncpoweredup) {
         debugOutput("call powerWncOn(%s,40)",apn);
-        m_wncpoweredup=_pwnc->powerWncOn(apn,40);
-        _errors = m_wncpoweredup? 1:0;
+        m_wncpoweredup=m_pwnc->powerWncOn(apn,40);
+        m_errors = m_wncpoweredup? 1:0;
         }
     else {          //powerWncOn already called, set a new APN
         debugOutput("set APN=%s",apn);
-        _errors = _pwnc->setApnName(apn)? 1:0;
+        m_errors = m_pwnc->setApnName(apn)? 1:0;
         }
 
-    _errors |= _pwnc->getWncNetworkingStats(&myNetStats)? 2:0;
+    m_errors |= m_pwnc->getWncNetworkingStats(&myNetStats)? 2:0;
     _pwnc_mutex.unlock();
 
-    debugOutput("EXIT connect (%02X)",_errors);
-    return (!_errors)? NSAPI_ERROR_NO_CONNECTION : NSAPI_ERROR_OK;
+    debugOutput("EXIT connect (%02X)",m_errors);
+    return (!m_errors)? NSAPI_ERROR_NO_CONNECTION : NSAPI_ERROR_OK;
 }
 
 const char *WNC14A2AInterface::get_ip_address()
@@ -181,13 +175,13 @@ const char *WNC14A2AInterface::get_ip_address()
     const char *ptr=NULL; 
 
     _pwnc_mutex.lock();
-    if ( _pwnc->getWncNetworkingStats(&myNetStats) ) {
+    if ( m_pwnc->getWncNetworkingStats(&myNetStats) ) {
         _pwnc_mutex.unlock();
-        CHK_WNCFE(( _pwnc->getWncStatus() == FATAL_FLAG ), null);
+        CHK_WNCFE(( m_pwnc->getWncStatus() == FATAL_FLAG ), null);
         ptr = &myNetStats.ip[0];
     }
     _pwnc_mutex.unlock();
-    _errors=NSAPI_ERROR_NO_CONNECTION;
+    m_errors=NSAPI_ERROR_NO_CONNECTION;
     return ptr;
 }
 
@@ -202,7 +196,7 @@ int WNC14A2AInterface::socket_open(void **handle, nsapi_protocol_t proto)
             break;
 
     if( i == WNC14A2A_SOCKET_COUNT ) {
-        _errors=NSAPI_ERROR_NO_SOCKET;
+        m_errors=NSAPI_ERROR_NO_SOCKET;
         return -1;
         }
 
@@ -223,7 +217,7 @@ int WNC14A2AInterface::socket_open(void **handle, nsapi_protocol_t proto)
     debugOutput("EXIT socket_open; Socket=%d, OPEN=%s, protocol =%s",
                 i, _sockets[i].opened?"YES":"NO", (_sockets[i].proto==NSAPI_UDP)?"UDP":"TCP");
     
-    _errors = NSAPI_ERROR_OK;
+    m_errors = NSAPI_ERROR_OK;
     return i;
 }
 
@@ -234,8 +228,8 @@ int WNC14A2AInterface::socket_connect(void *handle, const SocketAddress &address
 
     debugOutput("ENTER socket_connect(); IP=%s; PORT=%d;", address.get_ip_address(), address.get_port());
     
-    if (!_pwnc || m_active_socket == -1 || !wnc->opened ) {
-        _errors = NSAPI_ERROR_NO_SOCKET;
+    if (!m_pwnc || m_active_socket == -1 || !wnc->opened ) {
+        m_errors = NSAPI_ERROR_NO_SOCKET;
         return -1;
         }
 
@@ -248,12 +242,12 @@ int WNC14A2AInterface::socket_connect(void *handle, const SocketAddress &address
 
     _pwnc_mutex.lock();
     if( wnc->url.empty() ) {
-        if( !_pwnc->openSocketIpAddr(m_active_socket, address.get_ip_address(), address.get_port(), 
+        if( !m_pwnc->openSocketIpAddr(m_active_socket, address.get_ip_address(), address.get_port(), 
                                        (wnc->proto==NSAPI_UDP)?0:1, WNC14A2A_COMMUNICATION_TIMEOUT) ) 
             rval = -1;
         }
      else {
-        if( !_pwnc->openSocketUrl(m_active_socket, wnc->url.c_str(), wnc->addr.get_port(), (wnc->proto==NSAPI_UDP)?0:1) ) 
+        if( !m_pwnc->openSocketUrl(m_active_socket, wnc->url.c_str(), wnc->addr.get_port(), (wnc->proto==NSAPI_UDP)?0:1) ) 
             rval = -1;
         }
     _pwnc_mutex.unlock();
@@ -280,20 +274,20 @@ nsapi_error_t WNC14A2AInterface::gethostbyname(const char* name, SocketAddress *
     debugOutput("ENTER gethostbyname(); IP=%s; PORT=%d; URL=%s;", address->get_ip_address(), address->get_port(), name);
     memset(ipAddrStr,0x00,sizeof(ipAddrStr));
     
-    if (!_pwnc) 
-        return (_errors = NSAPI_ERROR_NO_SOCKET);
+    if (!m_pwnc) 
+        return (m_errors = NSAPI_ERROR_NO_SOCKET);
         
     if (m_active_socket != -1)      //we might have been called before a socket was opened
         t_socket = m_active_socket; //if so, do nothing with the active socket index
 
     //Execute DNS query.  
     _pwnc_mutex.lock();
-    if( !_pwnc->resolveUrl(t_socket, name) )  
-        ret = _errors = NSAPI_ERROR_DEVICE_ERROR;
+    if( !m_pwnc->resolveUrl(t_socket, name) )  
+        ret = m_errors = NSAPI_ERROR_DEVICE_ERROR;
 
     //Get IP address that the URL was resolved to
-    if( !_pwnc->getIpAddr(t_socket, ipAddrStr) )
-        ret = _errors = NSAPI_ERROR_DEVICE_ERROR;
+    if( !m_pwnc->getIpAddr(t_socket, ipAddrStr) )
+        ret = m_errors = NSAPI_ERROR_DEVICE_ERROR;
     _pwnc_mutex.unlock();
 
     if( ret != NSAPI_ERROR_OK )
@@ -307,7 +301,7 @@ nsapi_error_t WNC14A2AInterface::gethostbyname(const char* name, SocketAddress *
         }
 
     debugOutput("EXIT gethostbyname()");
-    return (_errors = ret);
+    return (m_errors = ret);
 }
  
 
@@ -318,8 +312,8 @@ int WNC14A2AInterface::socket_close(void *handle)
 
     debugOutput("ENTER socket_close()");
 
-    if (!_pwnc || m_active_socket == -1) {
-        _errors = NSAPI_ERROR_NO_SOCKET;
+    if (!m_pwnc || m_active_socket == -1) {
+        m_errors = NSAPI_ERROR_NO_SOCKET;
         return -1;
         }
     else
@@ -333,8 +327,8 @@ int WNC14A2AInterface::socket_close(void *handle)
         }
 
     _pwnc_mutex.lock();
-    if( !_pwnc->closeSocket(m_active_socket) ) {
-        _errors = NSAPI_ERROR_DEVICE_ERROR;
+    if( !m_pwnc->closeSocket(m_active_socket) ) {
+        m_errors = NSAPI_ERROR_DEVICE_ERROR;
         rval = -1;
         }
     _pwnc_mutex.unlock();
@@ -343,7 +337,7 @@ int WNC14A2AInterface::socket_close(void *handle)
         wnc->opened   = false;       //no longer in use
         wnc->addr     = NULL;        //not open
         wnc->proto    = NSAPI_TCP;   //assume TCP for now
-        _errors       = NSAPI_ERROR_OK;
+        m_errors       = NSAPI_ERROR_OK;
         wnc->_cb_data = NULL;
         wnc->_callback= NULL;
         }
@@ -358,9 +352,9 @@ const char *WNC14A2AInterface::get_mac_address()
     debugOutput("ENTER get_mac_address()");
 
     _pwnc_mutex.lock();
-    if( _pwnc->getICCID(&str) ) {
+    if( m_pwnc->getICCID(&str) ) {
         _pwnc_mutex.unlock();
-        CHK_WNCFE((_pwnc->getWncStatus()==FATAL_FLAG), null);
+        CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), null);
         mac = str.substr(3,20);
         mac[2]=mac[5]=mac[8]=mac[11]=mac[14]=':';
         strncpy(_mac_address, mac.c_str(), mac.length());
@@ -386,39 +380,39 @@ nsapi_error_t WNC14A2AInterface::disconnect()
 nsapi_error_t WNC14A2AInterface::set_credentials(const char *apn, const char *username, const char *password) 
 {
 
-    _errors=NSAPI_ERROR_OK;
+    m_errors=NSAPI_ERROR_OK;
     debugOutput("ENTER set_credentials()");
-    if( !_pwnc ) 
-        return (_errors=NSAPI_ERROR_NO_CONNECTION);
+    if( !m_pwnc ) 
+        return (m_errors=NSAPI_ERROR_NO_CONNECTION);
         
     if( !apn )
-        return (_errors=NSAPI_ERROR_PARAMETER);
+        return (m_errors=NSAPI_ERROR_PARAMETER);
 
     _pwnc_mutex.lock();
-    if( !_pwnc->setApnName(apn) )
-        _errors=NSAPI_ERROR_DEVICE_ERROR;
+    if( !m_pwnc->setApnName(apn) )
+        m_errors=NSAPI_ERROR_DEVICE_ERROR;
     _pwnc_mutex.unlock();
     debugOutput("EXIT set_credentials()");
-    return _errors;
+    return m_errors;
 }
 
 bool WNC14A2AInterface::registered()
 {
     debugOutput("ENTER registered()");
-    _errors=NSAPI_ERROR_OK;
+    m_errors=NSAPI_ERROR_OK;
 
-    if( !_pwnc ) {
-        _errors=NSAPI_ERROR_NO_CONNECTION;
+    if( !m_pwnc ) {
+        m_errors=NSAPI_ERROR_NO_CONNECTION;
         return false;
         }
 
     _pwnc_mutex.lock();
-    if ( _pwnc->getWncStatus() != WNC_GOOD )
-        _errors=NSAPI_ERROR_NO_CONNECTION;
+    if ( m_pwnc->getWncStatus() != WNC_GOOD )
+        m_errors=NSAPI_ERROR_NO_CONNECTION;
     _pwnc_mutex.unlock();
 
     debugOutput("EXIT registered()");
-    return (_errors==NSAPI_ERROR_OK);
+    return (m_errors==NSAPI_ERROR_OK);
 }
 
 char* WNC14A2AInterface::getSMSnbr( void ) 
@@ -427,24 +421,24 @@ char* WNC14A2AInterface::getSMSnbr( void )
     string iccid_str;
     static string msisdn_str;
 
-    if( !_pwnc ) {
-        _errors=NSAPI_ERROR_NO_CONNECTION;
+    if( !m_pwnc ) {
+        m_errors=NSAPI_ERROR_NO_CONNECTION;
         return NULL;
         }
 
-    CHK_WNCFE(( _pwnc->getWncStatus() == FATAL_FLAG ), null);
+    CHK_WNCFE(( m_pwnc->getWncStatus() == FATAL_FLAG ), null);
 
     _pwnc_mutex.lock();
-    if( !_pwnc->getICCID(&iccid_str) ) {
+    if( !m_pwnc->getICCID(&iccid_str) ) {
         _pwnc_mutex.unlock();
         return ret;
         }
     _pwnc_mutex.unlock();
  
-    CHK_WNCFE(( _pwnc->getWncStatus() == FATAL_FLAG ), null);
+    CHK_WNCFE(( m_pwnc->getWncStatus() == FATAL_FLAG ), null);
 
     _pwnc_mutex.lock();
-    if( _pwnc->convertICCIDtoMSISDN(iccid_str, &msisdn_str) )
+    if( m_pwnc->convertICCIDtoMSISDN(iccid_str, &msisdn_str) )
          ret = (char*)msisdn_str.c_str();    
     _pwnc_mutex.unlock();
     return ret;
@@ -459,19 +453,19 @@ void WNC14A2AInterface::sms_attach(void (*callback)(IOTSMS *))
 void WNC14A2AInterface::sms_start(void)
 {
     _pwnc_mutex.lock();                     
-    _pwnc->deleteSMSTextFromMem('*');       
+    m_pwnc->deleteSMSTextFromMem('*');       
     _pwnc_mutex.unlock();
 }
 
 void WNC14A2AInterface::sms_listen(uint16_t pp)
 {
     debugOutput("ENTER sms_listen(%d)",pp);
-    if( !_pwnc ) {
-        _errors=NSAPI_ERROR_NO_CONNECTION;
+    if( !m_pwnc ) {
+        m_errors=NSAPI_ERROR_NO_CONNECTION;
         return;
         }
 
-    CHK_WNCFE(( _pwnc->getWncStatus() == FATAL_FLAG ), fail);
+    CHK_WNCFE(( m_pwnc->getWncStatus() == FATAL_FLAG ), fail);
 
     if( m_smsmoning )
         m_smsmoning = false;
@@ -495,9 +489,9 @@ void WNC14A2AInterface::handle_sms_event()
     debugOutput("ENTER handle_sms_event()");
 
     if ( _sms_cb && m_smsmoning ) {
-        CHK_WNCFE((_pwnc->getWncStatus()==FATAL_FLAG), fail);
+        CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), fail);
         _pwnc_mutex.lock();
-        msgs_available = _pwnc->readUnreadSMSText(&m_smsmsgs, true);
+        msgs_available = m_pwnc->readUnreadSMSText(&m_smsmsgs, true);
         _pwnc_mutex.unlock();
         if( msgs_available ) {
             debugOutput("Have %d unread texts present",m_smsmsgs.msgCount);
@@ -519,10 +513,10 @@ int WNC14A2AInterface::getSMS(IOTSMS **pmsg)
     int msgs_available;
 
     debugOutput("ENTER getSMS()");
-    CHK_WNCFE((_pwnc->getWncStatus()==FATAL_FLAG), fail);
+    CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), fail);
 
     _pwnc_mutex.lock();
-    msgs_available = _pwnc->readUnreadSMSText(&m_smsmsgs, true);
+    msgs_available = m_pwnc->readUnreadSMSText(&m_smsmsgs, true);
     _pwnc_mutex.unlock();
 
     if( msgs_available ) {
@@ -546,7 +540,7 @@ int WNC14A2AInterface::sendIOTSms(const string& number, const string& message)
 
     debugOutput("ENTER sendIOTSms(%s,%s)",number.c_str(), message.c_str());
     _pwnc_mutex.lock();
-    int i =  _pwnc->sendSMSText((char*)number.c_str(), message.c_str());
+    int i =  m_pwnc->sendSMSText((char*)number.c_str(), message.c_str());
     _pwnc_mutex.unlock();
 
     debugOutput("EXIT sendIOTSms(%s,%s)",number.c_str(), message.c_str());
@@ -569,7 +563,7 @@ int WNC14A2AInterface::socket_sendto(void *handle, const SocketAddress &address,
     
     debugOutput("ENTER socket_sendto()");
     
-    CHK_WNCFE(( _pwnc->getWncStatus() == FATAL_FLAG ), fail);
+    CHK_WNCFE(( m_pwnc->getWncStatus() == FATAL_FLAG ), fail);
    
     if (!wnc->_wnc_opened) {
        int err = socket_connect(wnc, address);
@@ -605,14 +599,14 @@ int WNC14A2AInterface::socket_recvfrom(void *handle, SocketAddress *address, voi
 int inline WNC14A2AInterface::socket_accept(nsapi_socket_t server, nsapi_socket_t *handle, SocketAddress *address) 
 {
     debugOutput("ENTER/EXIT socket_accept()");
-    _errors = NSAPI_ERROR_UNSUPPORTED;
+    m_errors = NSAPI_ERROR_UNSUPPORTED;
     return -1;
 }
 
 int inline WNC14A2AInterface::socket_bind(void *handle, const SocketAddress &address) 
 {
     debugOutput("ENTER/EXIT socket_bind()");
-    _errors = NSAPI_ERROR_UNSUPPORTED;
+    m_errors = NSAPI_ERROR_UNSUPPORTED;
     return -1;
 }
 
@@ -620,18 +614,18 @@ int inline WNC14A2AInterface::socket_bind(void *handle, const SocketAddress &add
 int inline WNC14A2AInterface::socket_listen(void *handle, int backlog)
 {
    debugOutput("ENTER/EXIT socket_listen()");
-    _errors = NSAPI_ERROR_UNSUPPORTED;
+    m_errors = NSAPI_ERROR_UNSUPPORTED;
     return -1;
 }
 
 void WNC14A2AInterface::doDebug( int v )
 {
     #if MBED_CONF_APP_WNC_DEBUG == true
-    if( !_pwnc )
-        _errors = NSAPI_ERROR_DEVICE_ERROR;
+    if( !m_pwnc )
+        m_errors = NSAPI_ERROR_DEVICE_ERROR;
     else {
         _pwnc_mutex.lock();
-        _pwnc->enableDebug( (v&1), (v&2) );
+        m_pwnc->enableDebug( (v&1), (v&2) );
         _pwnc_mutex.unlock();
         }
 
@@ -698,8 +692,8 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
 
     debugOutput("ENTER socket_recv(), request %d bytes",size);
 
-    if (!_pwnc || m_active_socket == -1) 
-        return (_errors = NSAPI_ERROR_NO_SOCKET);
+    if (!m_pwnc || m_active_socket == -1) 
+        return (m_errors = NSAPI_ERROR_NO_SOCKET);
 
     if( size < 1 || data == NULL )  // should never happen
         return 0; 
@@ -743,7 +737,7 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
 
         default:
             debugOutput("EXIT socket_recv(), NSAPI_ERROR_DEVICE_ERROR");
-            return (_errors = NSAPI_ERROR_DEVICE_ERROR);
+            return (m_errors = NSAPI_ERROR_DEVICE_ERROR);
         }
 }
 
@@ -754,8 +748,8 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
 
     debugOutput("ENTER socket_send() send %d bytes",size);
 
-    if (!_pwnc || m_active_socket == -1) {
-        _errors = NSAPI_ERROR_NO_SOCKET;
+    if (!m_pwnc || m_active_socket == -1) {
+        m_errors = NSAPI_ERROR_NO_SOCKET;
         return 0;
         }
     else
@@ -797,7 +791,7 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
 
         default:
             debugOutput("EXIT socket_send(), NSAPI_ERROR_DEVICE_ERROR");
-            return (_errors = NSAPI_ERROR_DEVICE_ERROR);
+            return (m_errors = NSAPI_ERROR_DEVICE_ERROR);
         }
 }
 
@@ -825,11 +819,11 @@ int WNC14A2AInterface::tx_event()
     debugOutput("ENTER tx_event()");
 
     _pwnc_mutex.lock();
-    if( _pwnc->write(m_tx_socket, m_tx_dptr, m_tx_req_size) ) 
+    if( m_pwnc->write(m_tx_socket, m_tx_dptr, m_tx_req_size) ) 
         m_tx_total_sent += m_tx_req_size;
     else
         debugOutput("tx_event WNC failed to send()");
-    CHK_WNCFE((_pwnc->getWncStatus()==FATAL_FLAG), resume);
+    CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
     _pwnc_mutex.unlock();
     
     if( m_tx_total_sent < m_tx_orig_size ) {
@@ -858,8 +852,8 @@ int WNC14A2AInterface::rx_event()
 
     debugOutput("ENTER rx_event()");
     _pwnc_mutex.lock();
-    int cnt = _pwnc->read(m_recv_socket, m_recv_dptr,  m_recv_req_size);
-    CHK_WNCFE((_pwnc->getWncStatus()==FATAL_FLAG), resume);
+    int cnt = m_pwnc->read(m_recv_socket, m_recv_dptr,  m_recv_req_size);
+    CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
     _pwnc_mutex.unlock();
     if( cnt ) {
         m_recv_dptr += cnt;
@@ -872,7 +866,7 @@ int WNC14A2AInterface::rx_event()
         }
     else if( ++m_recv_timer > (WNC14A2A_READ_TIMEOUTMS/ISR_FREQ) ) {
         //didn't get all requested data and we timed out waiting
-        CHK_WNCFE((_pwnc->getWncStatus()==FATAL_FLAG), resume);
+        CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
         debugOutput("EXIT rx_event(), TIME-OUT!");
         k = m_recv_return_cnt = m_recv_total_cnt;
         m_recv_wnc_state = DATA_AVAILABLE;
