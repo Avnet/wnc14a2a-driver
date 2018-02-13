@@ -35,11 +35,11 @@
 #include <string> 
 #include <ctype.h>
 
-#define WNC14A2A_READ_TIMEOUTMS        2000              //read this long total until we decide there is no data to receive in MS
-#define WNC14A2A_COMMUNICATION_TIMEOUT 100               //how long (ms) to wait for a WNC14A2A connect response
-#define WNC_BUFF_SIZE                  1500              //total number of bytes in a single WNC call
-#define UART_BUFF_SIZE                 4000              //size of our internal uart buffer
-#define ISR_FREQ                       250               //frequency in ms to run the isr handler
+#define WNC14A2A_READ_TIMEOUTMS        2000                      //duration to read no data to receive in MS
+#define WNC14A2A_COMMUNICATION_TIMEOUT 100                       //how long (ms) to wait for a WNC14A2A connect response
+#define WNC_BUFF_SIZE                  1500                      //total number of bytes in a single WNC call
+#define UART_BUFF_SIZE                 4000                      //size of our internal uart buffer
+#define ISR_FREQ                       250                      //frequency in ms to run the isr handler to check in foreground
 
 //
 // The WNC device does not generate interrutps on received data, so the module must be polled 
@@ -733,6 +733,7 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
 
         case READ_INIT:
         case READ_ACTIVE:
+            m_recv_timer    = 0;
             return NSAPI_ERROR_WOULD_BLOCK;
 
         default:
@@ -807,7 +808,7 @@ void WNC14A2AInterface::wnc_isr_event()
     if( m_tx_wnc_state == TX_ACTIVE )
         done &= tx_event();
 
-    if( !done ) 
+    if( !done )  
         isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
 
     debugOutput("EXIT wnc_isr_event()");
@@ -865,17 +866,20 @@ int WNC14A2AInterface::rx_event()
         m_recv_timer = 0;  //restart the timer
         }
     else if( ++m_recv_timer > (WNC14A2A_READ_TIMEOUTMS/ISR_FREQ) ) {
-        //didn't get all requested data and we timed out waiting
+        //didn't get all requested data and timed out waiting
         CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
-        debugOutput("EXIT rx_event(), TIME-OUT!");
+        debugOutput("EXIT start checking for unsolicited rx_event(), TIME-OUT!");
         k = m_recv_return_cnt = m_recv_total_cnt;
-        m_recv_wnc_state = DATA_AVAILABLE;
-        if( m_recv_callback != NULL ) 
-            m_recv_callback( m_recv_cb_data );
-        m_recv_cb_data = NULL; 
-        m_recv_callback = NULL;
-        m_recv_return_cnt = k;
-        return 1;
+        if( m_recv_total_cnt > 0 ) {  //if we received some data, return it to the caller
+            m_recv_wnc_state = DATA_AVAILABLE;
+            if( m_recv_callback != NULL ) 
+                m_recv_callback( m_recv_cb_data );
+            m_recv_cb_data = NULL; 
+            m_recv_callback = NULL;
+            m_recv_return_cnt = k;
+            }
+        m_recv_timer=0;
+        return 0;
         }
 
     if( m_recv_events > 0 ) {
