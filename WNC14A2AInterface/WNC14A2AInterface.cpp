@@ -74,6 +74,8 @@ DigitalOut  mdm_reset(PTC12);                   // active high
 DigitalOut  shield_3v3_1v8_sig_trans_ena(PTC4); // 0 = disabled (all signals high impedence, 1 = translation active
 DigitalOut  mdm_uart1_cts(PTD0);                // WNC doesn't utilize RTS/CTS but the pin is connected
 
+int _inflight_isr_event;                        // track currently active ISRs in the Event Queu
+
 using namespace WncControllerK64F_fk;            // namespace for the AT controller class use
 
 //! associations for the controller class to use. Order of pins is critical.
@@ -332,6 +334,7 @@ int WNC14A2AInterface::socket_close(void *handle)
         rval = -1;
         }
     _pwnc_mutex.unlock();
+    isr_queue.cancel(_inflight_isr_event); //incase any events were in process
 
     if( !rval ) {
         wnc->opened   = false;       //no longer in use
@@ -719,7 +722,8 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
 
             if( !rx_event() ){
                 m_recv_wnc_state = READ_ACTIVE;
-                isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
+                _inflight_isr_event=
+                  isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
                 return NSAPI_ERROR_WOULD_BLOCK;
                 }
             //was able to get the requested data in a single transaction so fall thru and finish
@@ -776,7 +780,8 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
 
             if( !tx_event() ) {   //if we didn't sent all the data at once, continue in background
                 m_tx_wnc_state = TX_ACTIVE;
-                isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
+                _inflight_isr_event=
+                  isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
                 return NSAPI_ERROR_WOULD_BLOCK;
                 }
             //all data sent so fall through to TX_COMPLETE
@@ -809,7 +814,8 @@ void WNC14A2AInterface::wnc_isr_event()
         done &= tx_event();
 
     if( !done )  
-        isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
+        _inflight_isr_event=
+          isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
 
     debugOutput("EXIT wnc_isr_event()");
 }
