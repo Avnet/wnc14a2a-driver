@@ -35,11 +35,11 @@
 #include <string> 
 #include <ctype.h>
 
-#define WNC14A2A_READ_TIMEOUTMS        2000                      //duration to read no data to receive in MS
-#define WNC14A2A_COMMUNICATION_TIMEOUT 100                       //how long (ms) to wait for a WNC14A2A connect response
-#define WNC_BUFF_SIZE                  1500                      //total number of bytes in a single WNC call
-#define UART_BUFF_SIZE                 4000                      //size of our internal uart buffer
-#define ISR_FREQ                       250                      //frequency in ms to run the isr handler to check in foreground
+#define WNC14A2A_READ_TIMEOUTMS        4000                     //duration to read no data to receive in MS
+#define WNC14A2A_COMMUNICATION_TIMEOUT 100                      //how long (ms) to wait for a WNC14A2A connect response
+#define WNC_BUFF_SIZE                  1500                     //total number of bytes in a single WNC call
+#define UART_BUFF_SIZE                 4000                     //size of our internal uart buffer
+#define EQ_FREQ                        250                      //frequency in ms to run the event queue handler to check in foreground
 
 //
 // The WNC device does not generate interrutps on received data, so the module must be polled 
@@ -74,7 +74,7 @@ DigitalOut  mdm_reset(PTC12);                   // active high
 DigitalOut  shield_3v3_1v8_sig_trans_ena(PTC4); // 0 = disabled (all signals high impedence, 1 = translation active
 DigitalOut  mdm_uart1_cts(PTD0);                // WNC doesn't utilize RTS/CTS but the pin is connected
 
-int _inflight_isr_event;                        // track currently active ISRs in the Event Queu
+int _wncEQ;                        // track currently active ISRs in the Event Queu
 
 using namespace WncControllerK64F_fk;            // namespace for the AT controller class use
 
@@ -88,7 +88,7 @@ WncGpioPinListK64F wncPinList = {
     &mdm_uart1_cts
 };
 
-Thread smsThread, isrThread;                          //SMS thread for receiving SMS, recv is for simulated rx-interrupt
+Thread smsThread, eqThread;                          //SMS thread for receiving SMS, recv is for simulated rx-interrupt
 static Mutex _pwnc_mutex;                           //because WNC class is not re-entrant
 
 static WNCSOCKET _sockets[WNC14A2A_SOCKET_COUNT];     //WNC supports 8 open sockets but driver only supports 1 currently
@@ -108,7 +108,8 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
  m_pwnc(NULL),
  m_active_socket(-1),
  m_errors(NSAPI_ERROR_OK),
- m_smsmoning(0)
+ m_smsmoning(0),
+ m_recv_bound(false)
 {
 
     memset(_mac_address,0x00,sizeof(_mac_address));
@@ -147,7 +148,7 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
 {
     debugOutput("ENTER connect(apn,user,pass)");
 
-    isrThread.start(callback(&isr_queue,&EventQueue::dispatch_forever));
+    eqThread.start(callback(&wnc_queue,&EventQueue::dispatch_forever));
     if( !m_pwnc )
         return (m_errors=NSAPI_ERROR_NO_CONNECTION);
 
@@ -181,8 +182,9 @@ const char *WNC14A2AInterface::get_ip_address()
         _pwnc_mutex.unlock();
         CHK_WNCFE(( m_pwnc->getWncStatus() == FATAL_FLAG ), null);
         ptr = &myNetStats.ip[0];
-    }
-    _pwnc_mutex.unlock();
+        }
+    else
+        _pwnc_mutex.unlock();
     m_errors=NSAPI_ERROR_NO_CONNECTION;
     return ptr;
 }
@@ -215,6 +217,7 @@ int WNC14A2AInterface::socket_open(void **handle, nsapi_protocol_t proto)
 
     m_recv_wnc_state = READ_START;
     m_tx_wnc_state = TX_IDLE;
+    m_recv_bound = false;
 
     debugOutput("EXIT socket_open; Socket=%d, OPEN=%s, protocol =%s",
                 i, _sockets[i].opened?"YES":"NO", (_sockets[i].proto==NSAPI_UDP)?"UDP":"TCP");
@@ -323,7 +326,6 @@ int WNC14A2AInterface::socket_close(void *handle)
     
     m_tx_wnc_state = TX_IDLE;               //reset TX state
     if( m_recv_wnc_state != READ_START ) {  //reset RX state
-        m_recv_events = 0;  //force a timeout
         while( m_recv_wnc_state !=  DATA_AVAILABLE ) 
             wait(1);  //someone called close while a read was happening
         }
@@ -334,7 +336,8 @@ int WNC14A2AInterface::socket_close(void *handle)
         rval = -1;
         }
     _pwnc_mutex.unlock();
-    isr_queue.cancel(_inflight_isr_event); //incase any events were in process
+    wnc_queue.cancel(_wncEQ); //incase any events were in process
+    m_recv_bound=false;
 
     if( !rval ) {
         wnc->opened   = false;       //no longer in use
@@ -608,9 +611,10 @@ int inline WNC14A2AInterface::socket_accept(nsapi_socket_t server, nsapi_socket_
 
 int inline WNC14A2AInterface::socket_bind(void *handle, const SocketAddress &address) 
 {
-    debugOutput("ENTER/EXIT socket_bind()");
-    m_errors = NSAPI_ERROR_UNSUPPORTED;
-    return -1;
+    debugOutput("ENTER/EXIT socket_bind(), use address '%s', port %d", address.get_ip_address(),address.get_port());
+    m_recv_bound=true;
+    m_errors = NSAPI_ERROR_OK;
+    return 0;
 }
 
 
@@ -707,27 +711,23 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
             m_recv_socket   = wnc->socket; //just in case sending to a socket that wasn't last used
             m_recv_dptr     = (uint8_t*)data;
             m_recv_orig_size= size;
+            m_recv_req_size = (uint32_t)size;
             m_recv_total_cnt= 0;
             m_recv_timer    = 0;
-            m_recv_events   = 1;
-            m_recv_req_size = (uint32_t)size;
             m_recv_return_cnt=0;
 
-            if( m_recv_req_size > WNC_BUFF_SIZE) {
-                m_recv_events  =  ((uint32_t)size/WNC_BUFF_SIZE);
+            if( m_recv_req_size > WNC_BUFF_SIZE) 
                 m_recv_req_size= WNC_BUFF_SIZE;
-                }
+                
             m_recv_callback = wnc->_callback;
             m_recv_cb_data  = wnc->_cb_data;
 
             if( !rx_event() ){
                 m_recv_wnc_state = READ_ACTIVE;
-                _inflight_isr_event=
-                  isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
+                _wncEQ=wnc_queue.call_in(EQ_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
                 return NSAPI_ERROR_WOULD_BLOCK;
                 }
-            //was able to get the requested data in a single transaction so fall thru and finish
-            //no need to schedule the background task
+            //got data, fall thru and finish. no need to schedule the background task
 
         case DATA_AVAILABLE:
             debugOutput("EXIT socket_recv(), return %d bytes",m_recv_return_cnt);
@@ -735,9 +735,9 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
             m_recv_wnc_state = READ_START;
             return m_recv_return_cnt;
 
-        case READ_INIT:
         case READ_ACTIVE:
-            m_recv_timer    = 0;
+        case READ_INIT:
+            m_recv_timer    = 0;  //reset the time-out timer
             return NSAPI_ERROR_WOULD_BLOCK;
 
         default:
@@ -757,8 +757,7 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
         m_errors = NSAPI_ERROR_NO_SOCKET;
         return 0;
         }
-    else
-        m_active_socket = wnc->socket; //just in case sending to a socket that wasn't last used
+    m_active_socket = wnc->socket; //just in case sending to a socket that wasn't last used
 
     if( size < 1 || data == NULL )  // should never happen
         return 0; 
@@ -780,8 +779,7 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
 
             if( !tx_event() ) {   //if we didn't sent all the data at once, continue in background
                 m_tx_wnc_state = TX_ACTIVE;
-                _inflight_isr_event=
-                  isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
+                _wncEQ=wnc_queue.call_in(EQ_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
                 return NSAPI_ERROR_WOULD_BLOCK;
                 }
             //all data sent so fall through to TX_COMPLETE
@@ -802,11 +800,11 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
 }
 
 
-void WNC14A2AInterface::wnc_isr_event()
+void WNC14A2AInterface::wnc_eq_event()
 {
     int done = 1;
 
-    debugOutput("ENTER wnc_isr_event()");
+    debugOutput("ENTER wnc_eq_event()");
 
     if( m_recv_wnc_state == READ_ACTIVE ) 
         done &= rx_event();
@@ -814,10 +812,9 @@ void WNC14A2AInterface::wnc_isr_event()
         done &= tx_event();
 
     if( !done )  
-        _inflight_isr_event=
-          isr_queue.call_in(ISR_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_isr_event));
+        _wncEQ=wnc_queue.call_in(EQ_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
 
-    debugOutput("EXIT wnc_isr_event()");
+    debugOutput("EXIT wnc_eq_event()");
 }
 
 
@@ -828,9 +825,6 @@ int WNC14A2AInterface::tx_event()
     _pwnc_mutex.lock();
     if( m_pwnc->write(m_tx_socket, m_tx_dptr, m_tx_req_size) ) 
         m_tx_total_sent += m_tx_req_size;
-    else
-        debugOutput("tx_event WNC failed to send()");
-    CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
     _pwnc_mutex.unlock();
     
     if( m_tx_total_sent < m_tx_orig_size ) {
@@ -855,58 +849,33 @@ int WNC14A2AInterface::tx_event()
 
 int WNC14A2AInterface::rx_event()
 {
-    uint32_t k;
-
     debugOutput("ENTER rx_event()");
     _pwnc_mutex.lock();
     int cnt = m_pwnc->read(m_recv_socket, m_recv_dptr,  m_recv_req_size);
-    CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
     _pwnc_mutex.unlock();
-    if( cnt ) {
-        m_recv_dptr += cnt;
-        m_recv_total_cnt += cnt;
-        m_recv_req_size = m_recv_orig_size-m_recv_total_cnt;
-        if( m_recv_req_size > WNC_BUFF_SIZE )
-            m_recv_req_size = WNC_BUFF_SIZE;
-        --m_recv_events;
-        m_recv_timer = 0;  //restart the timer
-        }
-    else if( ++m_recv_timer > (WNC14A2A_READ_TIMEOUTMS/ISR_FREQ) ) {
-        //didn't get all requested data and timed out waiting
-        CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), resume);
-        debugOutput("EXIT start checking for unsolicited rx_event(), TIME-OUT!");
-        k = m_recv_return_cnt = m_recv_total_cnt;
-        if( m_recv_total_cnt > 0 ) {  //if we received some data, return it to the caller
-            m_recv_wnc_state = DATA_AVAILABLE;
-            if( m_recv_callback != NULL ) 
-                m_recv_callback( m_recv_cb_data );
-            m_recv_cb_data = NULL; 
-            m_recv_callback = NULL;
-            m_recv_return_cnt = k;
-            }
-        m_recv_timer=0;
-        return 0;
-        }
 
-    if( m_recv_events > 0 ) {
-        debugOutput("EXIT rx_event() but sechedule for more data.");
-        return 0;
-        }
-    else if( m_recv_total_cnt >= m_recv_orig_size ){
-        k = m_recv_return_cnt = m_recv_total_cnt;  //save because the callback func may call RX again on us
-        debugOutput("EXIT rx_event(), data available.");
-        m_recv_wnc_state = DATA_AVAILABLE;  
+    if( cnt ) {  //got data, return it to the caller
+        m_recv_wnc_state = DATA_AVAILABLE;
+        m_recv_return_cnt = cnt;
         if( m_recv_callback != NULL ) 
             m_recv_callback( m_recv_cb_data );
-        m_recv_cb_data = NULL;
+        m_recv_cb_data = NULL; 
         m_recv_callback = NULL;
-        m_recv_return_cnt = k;
         return 1;
         }
-    else{
-        debugOutput("EXIT rx_event() but sechedule for more data.");
-        return 0;
+    if( ++m_recv_timer > (WNC14A2A_READ_TIMEOUTMS/EQ_FREQ) && !m_recv_bound) {  //timed out waiting, return 0 to caller
+        debugOutput("EXIT rx_event(), rx data TIME-OUT!");
+        m_recv_wnc_state = DATA_AVAILABLE;
+        m_recv_return_cnt = 0;
+        if( m_recv_callback != NULL ) 
+            m_recv_callback( m_recv_cb_data );
+        m_recv_cb_data = NULL; 
+        m_recv_callback = NULL;
+        return 1;
         }
-     
+
+    //no data but we haven't timed-out yet...
+    debugOutput("EXIT rx_event() but sechedule for more data.");
+    return 0;
 }
 

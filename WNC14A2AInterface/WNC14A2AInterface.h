@@ -139,6 +139,7 @@ using namespace WncController_fk;
 class WNC14A2AInterface : public NetworkStack, public CellularInterface
 {
 public:
+
     /** WNC14A2AInterface Constructor.
      * @param optionally include a pointer to WNCDEBUG object for 
      * debug information to be displayed.
@@ -287,10 +288,10 @@ protected:
  
     /** Bind a server socket to a specific port.
      *
-     *  @brief              NOT SUPPORTED
+     *  @brief              Bind the socket to a specific port
      *  @param handle       Socket handle
-     *  @param address      address to listen for incoming connections on 
-     *  @return             NSAPI_ERROR_UNSUPPORTED;
+     *  @param address      address to listen for 
+     *  @return             0;
      */
     virtual int socket_bind(void *handle, const SocketAddress &address);
  
@@ -301,6 +302,9 @@ protected:
      *  @param backlog      Number of pending connections that can be queued up at any
      *                      one time [Default: 1]
      *  @return             NSAPI_ERROR_UNSUPPORTED;
+     *  @note This function causes the receive time-out to be ignored resulting in continuous
+     *        monitoring of received data. This is non-standard behaviour but it is how the
+     *        mbed-cloud servcies use it...
      */
     virtual int socket_listen(void *handle, int backlog);
  
@@ -385,6 +389,7 @@ protected:
 
 
 private:
+
     //! WncController Class for managing the 14A2a hardware
     friend class WncControllerK64F;  
 
@@ -401,14 +406,14 @@ private:
 
     bool m_smsmoning;                       // Track if the SMS monitoring thread is running
     EventQueue sms_queue;                   // Queue used to schedule for SMS checks
-    EventQueue isr_queue;                   // Queue used to schedule for receiving data
+    EventQueue wnc_queue;                   // Queue used to schedule for receiving data
     void (*_sms_cb)(IOTSMS *);              // Callback when text message is received. User must define this as 
                                             // a static function because I'm not handling an object offset
     IOTSMS m_MsgText, m_MsgText_array[MAX_SMS_MSGS];       // Used to pass SMS message to the user
     struct WncController::WncSmsList m_smsmsgs;            //use the WncSmsList structure to hold messages
 
     void handle_sms_event();                // SMS tx/rx handler
-    void wnc_isr_event();                   // Simulated ISR
+    void wnc_eq_event();                   // Simulated ISR
     int  rx_event();                        // receive data handler
     int  tx_event();                        // tx data handler
 
@@ -417,9 +422,9 @@ private:
     void _dbDump_arry( const uint8_t* data, unsigned int size );
 
     // Receive Interrupt simulation to enabled non-blocking operation
+    bool     m_recv_bound;
     uint8_t *m_recv_dptr;
     int      m_recv_wnc_state;
-    int      m_recv_events;
     int      m_recv_socket;
     int      m_recv_timer;
     unsigned m_recv_orig_size;
