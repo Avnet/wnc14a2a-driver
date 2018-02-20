@@ -30,7 +30,7 @@
 
 using namespace WncControllerK64F_fk;
 
-WncControllerK64F::WncControllerK64F(struct WncGpioPinListK64F * pPins, BufferedSerial * wnc_uart, WNCDebug * debug_uart)
+WncControllerK64F::WncControllerK64F(struct WncGpioPinListK64F * pPins, WncIO * wnc_uart, WNCDebug * debug_uart)
 {
     m_logTimer.start(); // Start the log timer now!    
     m_pDbgUart = debug_uart;
@@ -38,7 +38,7 @@ WncControllerK64F::WncControllerK64F(struct WncGpioPinListK64F * pPins, Buffered
     m_gpioPinList = *pPins;
 }
 
-bool WncControllerK64F::enterWncTerminalMode(BufferedSerial * pUart, bool echoOn)
+bool WncControllerK64F::enterWncTerminalMode(WncIO * pUart, bool echoOn)
 {
     if (pUart == NULL)
         return (false);  // Need a uart!

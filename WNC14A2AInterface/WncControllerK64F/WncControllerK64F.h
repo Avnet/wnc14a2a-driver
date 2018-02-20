@@ -33,6 +33,7 @@
 #include <stdint.h>
 #include "mbed.h"
 #include "WNCDebug.h"
+#include "WNCIO.h"
 #include "WncController.h"
 
 namespace WncControllerK64F_fk {
@@ -77,7 +78,7 @@ public:
      * @param wnc_uart - a pointer to the serial uart that is used to communicate with the WNC modem.
      * @param debug_uart - a pointer to a serial uart for the debug output to go out of, if NULL debug will not be output.
      */
-    WncControllerK64F(struct WncGpioPinListK64F * pPins, BufferedSerial * wnc_uart, WNCDebug * debug_uart = NULL);
+    WncControllerK64F(struct WncGpioPinListK64F * pPins, WncIO * wnc_uart, WNCDebug * debug_uart = NULL);
     
     /**
      *
@@ -90,7 +91,7 @@ public:
      * @param pUart - a pointer to a uart to use to collect the user input and put the output from the WNC.
      * @param echoOn - set to true to echo what is input back to the output of pUart.
      */
-    bool enterWncTerminalMode(BufferedSerial *pUart, bool echoOn);
+    bool enterWncTerminalMode(WncIO *pUart, bool echoOn);
     
 private:
 
@@ -117,7 +118,7 @@ private:
     virtual int  getTimerTicksB_mS(void);
 
     WNCDebug * m_pDbgUart;
-    BufferedSerial * m_pWncUart;
+    WncIO * m_pWncUart;
     WncGpioPinListK64F m_gpioPinList;
     Timer m_logTimer;
     Timer m_timerA;

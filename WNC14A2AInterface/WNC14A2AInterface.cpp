@@ -31,6 +31,7 @@
 #include "WNC14A2AInterface.h"
 #include <Thread.h>
 #include "mbed_events.h"
+#include "WNCIO.h"
 
 #include <string> 
 #include <ctype.h>
@@ -88,11 +89,12 @@ WncGpioPinListK64F wncPinList = {
     &mdm_uart1_cts
 };
 
-Thread smsThread, eqThread;                          //SMS thread for receiving SMS, recv is for simulated rx-interrupt
-static Mutex _pwnc_mutex;                           //because WNC class is not re-entrant
+Thread smsThread, eqThread;                        //SMS thread for receiving SMS, recv is for simulated rx-interrupt
+static Mutex _pwnc_mutex;                          //because WNC class is not re-entrant
 
-static WNCSOCKET _sockets[WNC14A2A_SOCKET_COUNT];     //WNC supports 8 open sockets but driver only supports 1 currently
-BufferedSerial   mdmUart(PTD3,PTD2,UART_BUFF_SIZE,1); //UART for WNC Module
+static WNCSOCKET _sockets[WNC14A2A_SOCKET_COUNT];  //WNC supports 8 open sockets but driver only supports 1 currently
+UARTSerial   mdmUart(PTD3,PTD2,115200);            //UART for WNC Module
+WncIO        wnc_io(&mdmUart);
 
 /*   Constructor
 *
@@ -122,7 +124,7 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
         }
 
     _debugUart = dbg;           
-    m_pwnc = new WncControllerK64F(&wncPinList, &mdmUart, dbg);
+    m_pwnc = new WncControllerK64F(&wncPinList, &wnc_io, dbg);
         
     if( !m_pwnc ) {
         debugOutput("FAILED to open WncControllerK64!");

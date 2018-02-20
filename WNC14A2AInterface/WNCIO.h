@@ -19,9 +19,8 @@
 */
 
 /**
-*  @file WNCDebug.h
-*  @brief A debug class that coordinates the output of debug messages to 
-*  either stdio or a serial port based on instantiation.
+*  @file WNCIO.h
+*  @brief A class that WNCInterface uses for input/output
 *
 *  @author James Flynn
 * 
@@ -29,24 +28,21 @@
 *  
 */
  
-#ifndef __WNCDEBUG__
-#define __WNCDEBUG__
+#ifndef __WNCIO__
+#define __WNCIO__
 #include <stdio.h>
-#include "WNCIO.h"
+#include "mbed.h"
 
-/** WNCDebug class
-* Used to write debug data to the user designated IO.  Currently
-* The class expects either a stdio element (defaults to stderr) or
-* a pointer to a WncIO object.
+/** WncIO class
+* Used to read/write the WNC UART using FILE I/O. 
 */
 
-class WNCDebug
+class WncIO
 {
 public:
     //! Create class with either stdio or a pointer to a uart
-    WNCDebug( FILE * fd = stderr ): m_puart(NULL) {m_stdiofp=fd;};
-    WNCDebug( WncIO * uart): m_stdiofp(NULL) {m_puart=uart;};
-    ~WNCDebug() {};
+    WncIO( UARTSerial * uart): m_puart(uart) {;}
+    ~WncIO() {};
 
     //! standard printf() functionallity
     int printf( char * fmt, ...) {
@@ -56,10 +52,7 @@ public:
             va_start (args, fmt);
             vsnprintf(buffer, sizeof(buffer), fmt, args);
             prt.lock();
-            if( m_stdiofp )
-                ret=fputs(buffer,m_stdiofp);
-            else
-                ret=m_puart->puts(buffer);
+            ret=m_puart->write(buffer,strlen(buffer));
             prt.unlock();
             va_end (args);
             return ret;
@@ -69,10 +62,7 @@ public:
     int putc( int c ) {
             int ret=0;
             prt.lock();
-            if( m_stdiofp )
-                ret=fputc(c, m_stdiofp);
-            else
-                ret=m_puart->putc(c);
+            ret=m_puart->write((const void*)&c,1);
             prt.unlock();
             return ret;
             }
@@ -81,17 +71,30 @@ public:
     int puts( const char * str ) {
             int ret=0;
             prt.lock();
-            if( m_stdiofp )
-                ret=fputs(str,m_stdiofp);
-            else
-                ret=m_puart->puts(str);
+            ret=m_puart->write(str,strlen(str));
             prt.unlock();
             return ret;
             }
 
+    //! return true when data is available, false otherwise
+    bool readable( void ) {
+        return m_puart->readable();
+        }
+
+    //! get the next character available from the uart
+    int getc( void ) {
+        char c;
+        m_puart->read( &c, 1 );
+        return c;
+        }
+
+    //! set the uart baud rate
+    void baud( int baud ) {
+        m_puart->set_baud(baud);
+        }
+
 private:
-    std::FILE *m_stdiofp;
-    WncIO *m_puart;
+    UARTSerial *m_puart;
     Mutex prt;
 };
 
