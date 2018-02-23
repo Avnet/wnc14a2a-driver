@@ -68,12 +68,13 @@
 //
 // GPIO Pins used to initialize the WNC parts on the Avnet WNC Shield
 //
-DigitalOut  mdm_uart2_rx_boot_mode_sel(PTC17);  // on powerup, 0 = boot mode, 1 = normal boot
-DigitalOut  mdm_power_on(PTB9);                 // 0 = modem on, 1 = modem off (hold high for >5 seconds to cycle modem)
-DigitalOut  mdm_wakeup_in(PTC2);                // 0 = let modem sleep, 1 = keep modem awake -- Note: pulled high on shield
-DigitalOut  mdm_reset(PTC12);                   // active high
-DigitalOut  shield_3v3_1v8_sig_trans_ena(PTC4); // 0 = disabled (all signals high impedence, 1 = translation active
-DigitalOut  mdm_uart1_cts(PTD0);                // WNC doesn't utilize RTS/CTS but the pin is connected
+
+DigitalOut  mdm_uart2_rx_boot_mode_sel(D1);     // on powerup, 0 = boot mode, 1 = normal boot
+DigitalOut  mdm_power_on(D2);                   // 0 = modem on, 1 = modem off (hold high for >5 seconds to cycle modem)
+DigitalOut  mdm_wakeup_in(D6);                  // 0 = let modem sleep, 1 = keep modem awake -- Note: pulled high on shield
+DigitalOut  mdm_reset(D8);                      // active high
+DigitalOut  shield_3v3_1v8_sig_trans_ena(D9);   // 0 = disabled (all signals high impedence, 1 = translation active
+DigitalOut  mdm_uart1_cts(D10);                 // WNC doesn't utilize RTS/CTS but the pin is connected
 
 int _wncEQ;                        // track currently active ISRs in the Event Queu
 
@@ -93,7 +94,8 @@ Thread smsThread, eqThread;                        //SMS thread for receiving SM
 static Mutex _pwnc_mutex;                          //because WNC class is not re-entrant
 
 static WNCSOCKET _sockets[WNC14A2A_SOCKET_COUNT];  //WNC supports 8 open sockets but driver only supports 1 currently
-UARTSerial   mdmUart(PTD3,PTD2,115200);            //UART for WNC Module
+
+UARTSerial   mdmUart(D12,D11,115200);              //UART for WNC Module
 WncIO        wnc_io(&mdmUart);
 
 /*   Constructor
