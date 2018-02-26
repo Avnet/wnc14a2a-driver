@@ -115,7 +115,7 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
  m_smsmoning(0),
  m_recv_bound(false)
 {
-
+    _debugUart = dbg;           
     memset(_mac_address,0x00,sizeof(_mac_address));
     for( int i=0; i<WNC14A2A_SOCKET_COUNT; i++ ) {
         _sockets[i].socket = i;
@@ -124,21 +124,13 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
         _sockets[i]._wnc_opened=false;
         _sockets[i].proto=NSAPI_TCP;
         }
-
-    _debugUart = dbg;           
-    m_pwnc = new WncControllerK64F(&wncPinList, &wnc_io, dbg);
-        
-    if( !m_pwnc ) {
-        debugOutput("FAILED to open WncControllerK64!");
-        m_errors = NSAPI_ERROR_DEVICE_ERROR;
-        }
-
 }
 
 //! Standard destructor
 WNC14A2AInterface::~WNC14A2AInterface()
 {
-    delete m_pwnc;  //free the existing WncControllerK64F object
+    if( m_pwnc )
+        delete m_pwnc;  //free the existing WncControllerK64F object
 }
 
 
@@ -151,6 +143,15 @@ nsapi_error_t WNC14A2AInterface::connect()   //can be called with no arguments o
 nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, const char *password) 
 {
     debugOutput("ENTER connect(apn,user,pass)");
+
+    if( m_pwnc == NULL ) {
+        m_pwnc = new WncControllerK64F(&wncPinList, &wnc_io, _debugUart);
+        if( !m_pwnc ) {
+            debugOutput("FAILED to open WncControllerK64!");
+            m_errors = NSAPI_ERROR_DEVICE_ERROR;
+            return NSAPI_ERROR_NO_MEMORY;
+            }
+        }
 
     eqThread.start(callback(&wnc_queue,&EventQueue::dispatch_forever));
     if( !m_pwnc )
