@@ -35,13 +35,15 @@ You may also want to specify the following to obtain debug output. This is added
 
 where the wnc_debug is either 'true' or 'false' to enable or disable debug output and the `wnc_debug_setting` variable is a 
 bit-field with the following settings:
-      1 - Basic WNC driver debug output
-      2 - Comprehensive WNC driver debug output
-      4 - Network call level debug output
-You can select any combination, 0 - 7.
+     0x01 - Basic WNC driver debug output
+     0x02 - Comprehensive WNC driver debug output
+     0x04 - Driver Enter/Exit debug information
+     0x08 - Driver Event Queue debug information
+     0x10 - SMS debug information
+     0x20 - Dump Driver Arrays
 
 ## Overriding settings
-You can increase the size of the Tx and Rx buffers used when communicating to the WNC device by adding (increased the buffer
+You need to increase the size of the Tx and Rx buffers used when communicating to the WNC device by adding (increas the buffer
 size to 4KB from 256 Bytes):
 
 

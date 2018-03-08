@@ -51,13 +51,38 @@ typedef struct smsmsg_t {
 typedef struct socket_t {
         int socket;                         //index of this socket
         string url;
-        SocketAddress addr;                 //hold info for this socket
-        bool opened;                        //has the socket been opened
-        bool _wnc_opened;                   //has the socket been opened
+        SocketAddress addr;                 //address info for this socket
+        bool opened;                        //is the socket opened
+        bool connected;                     //is the socket connected
         int proto;                          //this is a TCP or UDP socket
         void (*_callback)(void*);           //callback used with attach
         void *_cb_data;                     //callback data to be returned
     } WNCSOCKET;
+
+typedef struct rx_event_t {
+        int      m_rx_wnc_state;            //state of the socket receive 
+        bool     m_rx_socket;               //which socket is being rcvd on
+        uint8_t *m_rx_dptr;                 //pointer to the users data buffer
+        uint32_t m_rx_req_size;             //Requested number of bytes to receive
+        uint32_t m_rx_total_cnt;            //Total number of bytes received
+        int      m_rx_timer;                //Rx Timeout Timer
+        int      m_rx_disTO;                //Flag to disable Timeout Timer
+        void    (*m_rx_callback)(void*);    //callback used with attach
+        void     *m_rx_cb_data;             //callback data to be returned
+        uint32_t m_rx_return_cnt;           //number of bytes the Event Queue is returning
+    } RXEVENT;
+
+typedef struct tx_event_t {
+    // Transmit Interrupt simulation to enabled non-blocking operation
+    int      m_tx_wnc_state;
+    bool     m_tx_socket;
+    uint8_t *m_tx_dptr;
+    unsigned m_tx_orig_size;
+    uint32_t m_tx_req_size;
+    uint32_t m_tx_total_sent;
+    void    (*m_tx_callback)(void*);
+    void     *m_tx_cb_data;
+    } TXEVENT;
 
 #define WNC_DEBUG   0           //1=enable the WNC startup debug output
                                 //0=disable the WNC startup debug output
@@ -76,7 +101,7 @@ typedef struct socket_t {
 *
 *    CHK_WNCFE( condition-to-check, fail|void|null|resume )
 *
-*     'fail'   if you want to FATAL_WNC_ERROR will be called.  
+*     'fail'   if you want FATAL_WNC_ERROR to be called.  
 *     'void'   if you want to execute a void return
 *     'null'   if you want to execute a null return
 *     'resume' if you simply want to resume program execution
@@ -128,6 +153,11 @@ typedef struct socket_t {
 #endif
 
 #define CHK_WNCFE(x,y)    if( x ){FATAL_WNC_ERROR(y);}
+
+#define DBGMSG_DRV	0x04
+#define DBGMSG_EQ	0x08
+#define DBGMSG_SMS	0x10
+#define DBGMSG_ARRY     0x20
 
 #define MAX_SMS_MSGS    3
 
@@ -387,10 +417,9 @@ protected:
      */
     uint16_t wnc14a2a_chk_error(void) { return m_errors; }
 
-
 private:
 
-    //! WncController Class for managing the 14A2a hardware
+    //! WncController Class for interacting with the 14A2a hardware
     friend class WncControllerK64F;  
 
     bool     m_wncpoweredup;                //track if WNC has been power-up
@@ -399,48 +428,26 @@ private:
     WncIpStats myNetStats;                  //maintaint the network statistics
     WncControllerK64F_fk::WncControllerK64F *m_pwnc; //pointer to the WncController instance
 
-    int m_active_socket;                    // a 'pseudo' global to track the active socket
     WNCDebug *_debugUart;                     // Serial object for parser to communicate with radio
     char *_fatal_err_loc;                   // holds string containing location of fatal error
     nsapi_error_t m_errors;
 
     bool m_smsmoning;                       // Track if the SMS monitoring thread is running
     EventQueue sms_queue;                   // Queue used to schedule for SMS checks
-    EventQueue wnc_queue;                   // Queue used to schedule for receiving data
     void (*_sms_cb)(IOTSMS *);              // Callback when text message is received. User must define this as 
                                             // a static function because I'm not handling an object offset
     IOTSMS m_MsgText, m_MsgText_array[MAX_SMS_MSGS];       // Used to pass SMS message to the user
     struct WncController::WncSmsList m_smsmsgs;            //use the WncSmsList structure to hold messages
 
+    EventQueue wnc_queue;                   // Queue used to schedule for receiving data
     void handle_sms_event();                // SMS tx/rx handler
-    void wnc_eq_event();                   // Simulated ISR
-    int  rx_event();                        // receive data handler
-    int  tx_event();                        // tx data handler
+    void wnc_eq_event();                    // Simulated ISR
+    int  rx_event(RXEVENT *);               // receive data handler
+    int  tx_event(TXEVENT *);               // tx data handler
 
     char _mac_address[NSAPI_MAC_SIZE];      // local Mac
     void _dbOut(const char *format, ...);
     void _dbDump_arry( const uint8_t* data, unsigned int size );
-
-    // Receive Interrupt simulation to enabled non-blocking operation
-    bool     m_recv_bound;
-    uint8_t *m_recv_dptr;
-    int      m_recv_wnc_state;
-    int      m_recv_socket;
-    int      m_recv_timer;
-    unsigned m_recv_orig_size;
-    uint32_t m_recv_req_size, m_recv_total_cnt;
-    uint32_t m_recv_return_cnt;
-    void    (*m_recv_callback)(void*);
-    void     *m_recv_cb_data;
-
-    // Transmit Interrupt simulation to enabled non-blocking operation
-    uint8_t *m_tx_dptr;
-    int      m_tx_wnc_state;
-    int      m_tx_socket;
-    unsigned m_tx_orig_size;
-    uint32_t m_tx_req_size, m_tx_total_sent;
-    void    (*m_tx_callback)(void*);
-    void     *m_tx_cb_data;
 
 };
 
