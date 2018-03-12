@@ -39,7 +39,7 @@
 #include "WNCDebug.h"
 #include "WncControllerK64F/WncControllerK64F.h"
 
-#define WNC14A2A_SOCKET_COUNT 5
+#define WNC14A2A_SOCKET_COUNT WncController::MAX_NUM_WNC_SOCKETS 
 
 typedef struct smsmsg_t {
         string number;
@@ -61,7 +61,7 @@ typedef struct socket_t {
 
 typedef struct rx_event_t {
         int      m_rx_wnc_state;            //state of the socket receive 
-        bool     m_rx_socket;               //which socket is being rcvd on
+        int      m_rx_socket;               //which socket is being rcvd on
         uint8_t *m_rx_dptr;                 //pointer to the users data buffer
         uint32_t m_rx_req_size;             //Requested number of bytes to receive
         uint32_t m_rx_total_cnt;            //Total number of bytes received
@@ -75,7 +75,7 @@ typedef struct rx_event_t {
 typedef struct tx_event_t {
     // Transmit Interrupt simulation to enabled non-blocking operation
     int      m_tx_wnc_state;
-    bool     m_tx_socket;
+    int      m_tx_socket;
     uint8_t *m_tx_dptr;
     unsigned m_tx_orig_size;
     uint32_t m_tx_req_size;
@@ -154,6 +154,7 @@ typedef struct tx_event_t {
 
 #define CHK_WNCFE(x,y)    if( x ){FATAL_WNC_ERROR(y);}
 
+#define FIRMWARE_REV(x) (((WNC14A2AInterface*)x)->getWNCRev())
 #define DBGMSG_DRV	0x04
 #define DBGMSG_EQ	0x08
 #define DBGMSG_SMS	0x10
@@ -246,6 +247,12 @@ public:
      *         all debug            = 0x0f
      */
     void doDebug(int v);
+
+    /** Return the WNC reported Firmware Revision
+     *
+     *  @param          none.
+     */
+    const char* getWNCRev(void);
 
     /** Query registered state of WNC
      *

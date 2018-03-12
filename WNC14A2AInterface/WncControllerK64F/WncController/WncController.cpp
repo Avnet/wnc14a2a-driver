@@ -92,6 +92,7 @@ WncController::WncState_e WncController::m_sState = WNC_OFF;
 uint16_t WncController::m_sCmdTimeoutMs = WNC_CMD_TIMEOUT_MS;
 string WncController::m_sApnStr = "NULL";
 string WncController::m_sWncStr;
+string WncController::m_FirmwareRevision;
 uint8_t WncController::m_sPowerUpTimeoutSecs = MAX_POWERUP_TIMEOUT;
 bool WncController::m_sDebugEnabled = false;
 bool WncController::m_sMoreDebugEnabled = false;
@@ -158,6 +159,11 @@ WncController::WncController(void)
 }
 
 WncController::~WncController(void) {};
+
+const char* WncController::getFirmRev(void)
+{
+    return m_FirmwareRevision.c_str();
+}
 
 void WncController::enableDebug(bool on, bool moreDebugOn)
 {
@@ -1523,6 +1529,8 @@ bool WncController::at_init_wnc(bool hardReset)
   
   // Dump the firmware revision on the debug log:
   at_send_wnc_cmd("AT+GMR", &pRespStr, m_sCmdTimeoutMs);
+
+  m_FirmwareRevision = pRespStr->c_str();
 
   // Quick commands below do not need to check cellular connectivity
   at_send_wnc_cmd("ATE0", &pRespStr, WNC_QUICK_CMD_TIMEOUT_MS);  // Echo Off

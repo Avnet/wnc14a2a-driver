@@ -315,6 +315,15 @@ public:
      * @return none.
      */
     void enableDebug(bool on, bool moreDebugOn);
+
+    /**
+     *
+     * Reports the WNC Firmware Revision info.
+     * @ingroup API
+     * @param none.
+     * @return char *
+     */
+    const char* getFirmRev(void);
     
     ///////////////////////////////////////////
     //  SMS messaging
@@ -613,6 +622,7 @@ private:
     static uint16_t m_sCmdTimeoutMs;
     static string m_sApnStr;
     static string m_sWncStr;
+    static string m_FirmwareRevision;
     static uint8_t m_sPowerUpTimeoutSecs;
     static bool m_sDebugEnabled;
     static bool m_sMoreDebugEnabled;

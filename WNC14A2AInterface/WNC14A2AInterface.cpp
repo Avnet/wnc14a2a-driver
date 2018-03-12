@@ -39,7 +39,7 @@
 #define WNC14A2A_READ_TIMEOUTMS        4000                     //duration to read no data to receive in MS
 #define WNC14A2A_COMMUNICATION_TIMEOUT 100                      //how long (ms) to wait for a WNC14A2A connect response
 #define WNC_BUFF_SIZE                  1500                     //total number of bytes in a single WNC call
-#define UART_BUFF_SIZE                 4000                     //size of our internal uart buffer.. define in *.json file
+#define UART_BUFF_SIZE                 4096                     //size of our internal uart buffer.. define in *.json file
 
 #define EQ_FREQ                        250                      //frequency in ms to check for Tx/Rx data
 #define EQ_FREQ_SLOW                   2000                     //frequency in ms to check when in slow monitor mode
@@ -118,7 +118,7 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
     memset(_mac_address,0x00,sizeof(_mac_address));
     memset(_socTxS,0x00,sizeof(_socTxS));
     memset(_socRxS,0x00,sizeof(_socRxS));
-    for( int i=0; i<WNC14A2A_SOCKET_COUNT; i++ ) {
+    for( unsigned int i=0; i<WNC14A2A_SOCKET_COUNT; i++ ) {
         _sockets[i].socket = i;
         _sockets[i].addr = NULL;
         _sockets[i].opened=false;
@@ -289,6 +289,9 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
             return NSAPI_ERROR_NO_MEMORY;
             }
         CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), fail);
+        #if MBED_CONF_APP_WNC_DEBUG == true
+        m_pwnc->enableDebug( (MBED_CONF_APP_WNC_DEBUG_SETTING&1), (MBED_CONF_APP_WNC_DEBUG_SETTING&2) );
+        #endif
         }
 
     _eqThread.start(callback(&wnc_queue,&EventQueue::dispatch_forever));
@@ -313,6 +316,17 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
     debugOutput("EXIT connect (%02X)",m_errors);
     return (!m_errors)? NSAPI_ERROR_NO_CONNECTION : NSAPI_ERROR_OK;
 }
+
+const char* WNC14A2AInterface::getWNCRev(void)
+{
+    if( m_pwnc ) {
+        const char * str = m_pwnc->getFirmRev();
+        return &str[12];
+        }
+    else
+        return NULL;
+}
+
 
 const char *WNC14A2AInterface::get_ip_address()
 {
@@ -410,16 +424,11 @@ bool WNC14A2AInterface::registered()
     return (m_errors==NSAPI_ERROR_OK);
 }
 
+
 void WNC14A2AInterface::doDebug( int v )
 {
     #if MBED_CONF_APP_WNC_DEBUG == true
-    if( m_pwnc ){
-        _pwnc_mutex.lock();
-        m_pwnc->enableDebug( (v&1), (v&2) );
-        _pwnc_mutex.unlock();
-        }
     m_debug= v;
-
     debugOutput("SET debug flag to 0x%02X",v);
     #endif
 }
@@ -515,7 +524,7 @@ nsapi_error_t WNC14A2AInterface::gethostbyname(const char* name, SocketAddress *
 
 int WNC14A2AInterface::socket_open(void **handle, nsapi_protocol_t proto) 
 {
-    int i;
+    unsigned int i;
 
     debugOutput("ENTER socket_open()");
 
@@ -538,9 +547,7 @@ int WNC14A2AInterface::socket_open(void **handle, nsapi_protocol_t proto)
 
     _socRxS[i].m_rx_wnc_state = READ_START;
     _socRxS[i].m_rx_disTO = false;
-    _socRxS[i].m_rx_socket=i;
     _socTxS[i].m_tx_wnc_state = TX_IDLE;
-    _socTxS[i].m_tx_socket=i;
 
     *handle = &_sockets[i];
     
@@ -708,7 +715,6 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
         case TX_IDLE:
             txsock->m_tx_wnc_state = TX_STARTING;
             debugDump_arry((const uint8_t*)data,size);
-            txsock->m_tx_socket    = wnc->socket; 
             txsock->m_tx_dptr      = (uint8_t*)data;
             txsock->m_tx_orig_size = size;
             txsock->m_tx_req_size  = (uint32_t)size;
@@ -743,7 +749,7 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
 
 int WNC14A2AInterface::tx_event(TXEVENT *ptr)
 {
-    debugOutput("ENTER tx_event()");
+    debugOutput("ENTER tx_event(), socket %d",ptr->m_tx_socket);
 
     _pwnc_mutex.lock();
     if( m_pwnc->write(ptr->m_tx_socket, ptr->m_tx_dptr, ptr->m_tx_req_size) ) 
@@ -760,7 +766,7 @@ int WNC14A2AInterface::tx_event(TXEVENT *ptr)
         debugOutput("EXIT tx_event(), send %d more bytes.",ptr->m_tx_req_size);
         return 0;
         }
-    debugOutput("EXIT tx_event, data sent");
+    debugOutput("EXIT tx_event, socket %d, data sent",ptr->m_tx_socket);
     ptr->m_tx_wnc_state = TX_COMPLETE;
     if( ptr->m_tx_callback != NULL ) 
         ptr->m_tx_callback( ptr->m_tx_cb_data );
@@ -778,13 +784,13 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
     rxsock = &_socRxS[wnc->socket];
     debugOutput("ENTER socket_recv(), socket %d, request %d bytes",wnc->socket, size);
 
-    if( size < 1 || data == NULL )  // should never happen
+    if( size < 1 || data == NULL ) { // should never happen
         return 0; 
+        }
 
     switch( rxsock->m_rx_wnc_state ) {
         case READ_START:  //need to start a read sequence of events
-            rxsock->m_rx_wnc_state = READ_INIT;
-            rxsock->m_rx_socket   = wnc->socket; //just in case sending to a socket that wasn't last used
+            rxsock->m_rx_wnc_state= READ_INIT;
             rxsock->m_rx_dptr     = (uint8_t*)data;
             rxsock->m_rx_req_size = (uint32_t)size;
             rxsock->m_rx_total_cnt= 0;
@@ -822,7 +828,6 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
 }
 
 
-
 int WNC14A2AInterface::rx_event(RXEVENT *ptr)
 {
     debugOutput("ENTER rx_event() for socket %d", ptr->m_rx_socket);
@@ -851,7 +856,7 @@ int WNC14A2AInterface::rx_event(RXEVENT *ptr)
         return 1;
         }
 
-    debugOutput("EXIT rx_event() sechedule for more data.");
+    debugOutput("EXIT rx_event(), socket %d, sechedule for more data.",ptr->m_rx_socket);
     return 0;
 }
 
@@ -860,7 +865,7 @@ void WNC14A2AInterface::wnc_eq_event()
     int done = 1;
     bool goSlow = true;
 
-    for( int i=0; i<WNC14A2A_SOCKET_COUNT; i++ ) {
+    for( unsigned int i=0; i<WNC14A2A_SOCKET_COUNT; i++ ) {
         if( _socRxS[i].m_rx_wnc_state == READ_ACTIVE || _socRxS[i].m_rx_disTO) {
             done &= rx_event(&_socRxS[i]);
             goSlow &= ( _socRxS[i].m_rx_timer > ((WNC14A2A_READ_TIMEOUTMS/EQ_FREQ)*(EQ_FREQ_SLOW/EQ_FREQ)) );
@@ -871,6 +876,7 @@ void WNC14A2AInterface::wnc_eq_event()
 
         if( _socTxS[i].m_tx_wnc_state == TX_ACTIVE ) {
             goSlow = false;
+            debugOutput("CALL TX_event() for socket %d", i);
             done &= tx_event(&_socTxS[i]);
             }
         }
@@ -878,4 +884,3 @@ void WNC14A2AInterface::wnc_eq_event()
     if( !done )  
         wnc_queue.call_in((goSlow?EQ_FREQ_SLOW:EQ_FREQ),mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
 }
-
