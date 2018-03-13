@@ -167,7 +167,7 @@ using namespace WncController_fk;
 /** WNC14A2AInterface class
  *  Implementation of the NetworkInterface for WNC14A2A 
  */
-class WNC14A2AInterface : public NetworkStack, public CellularInterface
+class WNC14A2AInterface : public NetworkStack, public NetworkInterface
 {
 public:
 
@@ -435,6 +435,8 @@ private:
     WncIpStats myNetStats;                  //maintaint the network statistics
     WncControllerK64F_fk::WncControllerK64F *m_pwnc; //pointer to the WncController instance
 
+    UARTSerial* mdmUart;
+    WncIO* wnc_io;
     WNCDebug *_debugUart;                     // Serial object for parser to communicate with radio
     char *_fatal_err_loc;                   // holds string containing location of fatal error
     nsapi_error_t m_errors;

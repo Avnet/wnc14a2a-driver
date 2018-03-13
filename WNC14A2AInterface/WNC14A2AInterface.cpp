@@ -36,6 +36,82 @@
 #include <string> 
 #include <ctype.h>
 
+#define WNC_DEBUG   0           //1=enable the WNC startup debug output
+                                //0=disable the WNC startup debug output
+#define STOP_ON_FE  1           //1=hang forever if a fatal error occurs
+                                //0=simply return failed response for all socket calls
+#define DISPLAY_FE  1           //1 to display the fatal error when it occurs
+                                //0 to NOT display the fatal error
+#define RESETON_FE  0           //1 to cause the MCU to reset on fatal error
+                                //0 to NOT reset the MCU
+
+/** Error Handling macros & data
+*   @brief  The macros CHK_WNCFE is used to check if a fatal error has occured. If it has
+*           then execute the action specified: fail, void, null, resume
+*
+*    CHK_WNCFE( condition-to-check, fail|void|null|resume )
+*
+*     'fail'   if you want FATAL_WNC_ERROR to be called.  
+*     'void'   if you want to execute a void return
+*     'null'   if you want to execute a null return
+*     'resume' if you simply want to resume program execution
+*
+*  There are several settings that control how FATAL_WNC_ERROR behaves:
+*      1) RESETON_FE determines if the system will reset or hang.
+*      2) DISPLAY_FE determine if an error message is generated or not
+*
+*  The DISPLAY_FE setting determines if a failure message is displayed. 
+*  If set to 1, user sees this messageo:
+*
+*      WNC FAILED @ source-file-name:source-file-line-number
+*
+*  if not set, nothing is displayed.
+*/
+
+#define FATAL_FLAG  WncController::WNC_NO_RESPONSE
+#define WNC_GOOD    WncController::WNC_ON
+
+#define RETfail return -1
+#define RETvoid return
+#define RETnull return NULL
+#define RETresume   
+
+#define DORET(x) RET##x
+
+#define TOSTR(x) #x
+#define INTSTR(x) TOSTR(x)
+#define FATAL_STR (char*)(__FILE__ ":" INTSTR(__LINE__))
+
+#if RESETON_FE == 1   //reset on fatal error
+#define MCURESET     ((*((volatile unsigned long *)0xE000ED0CU))=(unsigned long)((0x5fa<<16) | 0x04L))
+#define RSTMSG       "RESET MCU! "
+#else
+#define MCURESET
+#define RSTMSG       ""
+#endif
+
+#if DISPLAY_FE == 1  //display fatal error message
+#define PFE     {if(_debugUart)_debugUart->printf((char*)RSTMSG "\r\n>>WNC FAILED @ %s\r\n", FATAL_STR);}
+#else
+#define PFE
+#endif
+
+#if STOP_ON_FE == 1  //halt cpu on fatal error
+#define FATAL_WNC_ERROR(v)  {_fatal_err_loc=FATAL_STR;PFE;MCURESET;while(1);}
+#else
+#define FATAL_WNC_ERROR(v)  {_fatal_err_loc=FATAL_STR;PFE;DORET(v);}
+#endif
+
+#define CHK_WNCFE(x,y)    if( x ){FATAL_WNC_ERROR(y);}
+
+//
+// Define different levels of debug output
+//
+#define DBGMSG_DRV	               0x04                     //driver enter/exit info
+#define DBGMSG_EQ	               0x08                     //driver event queue info
+#define DBGMSG_SMS	               0x10                     //driver SMS info
+#define DBGMSG_ARRY                    0x20                     //dump driver arrays
+
 #define WNC14A2A_READ_TIMEOUTMS        4000                     //duration to read no data to receive in MS
 #define WNC14A2A_COMMUNICATION_TIMEOUT 100                      //how long (ms) to wait for a WNC14A2A connect response
 #define WNC_BUFF_SIZE                  1500                     //total number of bytes in a single WNC call
@@ -73,31 +149,7 @@ static Thread    _smsThread, _eqThread;            //Event Queue thread for SMS 
 static Mutex     _pwnc_mutex;                      
 static int       _active_socket = 0;
 
-//
-// GPIO Pins used to initialize the WNC parts on the Avnet WNC Shield
-//
-
-DigitalOut  mdm_uart2_rx_boot_mode_sel(D1);     // on powerup, 0 = boot mode, 1 = normal boot
-DigitalOut  mdm_power_on(D2);                   // 0 = modem on, 1 = modem off (hold high for >5 seconds to cycle modem)
-DigitalOut  mdm_wakeup_in(D6);                  // 0 = let modem sleep, 1 = keep modem awake -- Note: pulled high on shield
-DigitalOut  mdm_reset(D8);                      // active high
-DigitalOut  shield_3v3_1v8_sig_trans_ena(D9);   // 0 = disabled (all signals high impedence, 1 = translation active
-DigitalOut  mdm_uart1_cts(D10);                 // WNC doesn't utilize RTS/CTS but the pin is connected
-
 using namespace WncControllerK64F_fk;            // namespace for the AT controller class use
-
-//! associations for the controller class to use. Order of pins is critical.
-WncGpioPinListK64F wncPinList = { 
-    &mdm_uart2_rx_boot_mode_sel,
-    &mdm_power_on,
-    &mdm_wakeup_in,
-    &mdm_reset,
-    &shield_3v3_1v8_sig_trans_ena,
-    &mdm_uart1_cts
-};
-
-UARTSerial   mdmUart(D12,D11,115200);              //UART for WNC Module
-WncIO        wnc_io(&mdmUart);
 
 /*   Constructor
 *
@@ -135,6 +187,12 @@ WNC14A2AInterface::~WNC14A2AInterface()
 {
     if( m_pwnc )
         delete m_pwnc;  //free the existing WncControllerK64F object
+
+    if( mdmUart )
+        delete mdmUart;
+
+    if( wnc_io )
+        delete wnc_io;
 }
 
 // - - - - - - - 
@@ -279,10 +337,34 @@ nsapi_error_t WNC14A2AInterface::connect()   //can be called with no arguments o
 
 nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, const char *password) 
 {
+    //
+    // GPIO Pins used to initialize the WNC parts on the Avnet WNC Shield
+    //
+
+    static DigitalOut  mdm_uart2_rx_boot_mode_sel(D1);     // on powerup, 0 = boot mode, 1 = normal boot
+    static DigitalOut  mdm_power_on(D2);                   // 0 = modem on, 1 = modem off (hold high for >5 seconds to cycle modem)
+    static DigitalOut  mdm_wakeup_in(D6);                  // 0 = let modem sleep, 1 = keep modem awake -- Note: pulled high on shield
+    static DigitalOut  mdm_reset(D8);                      // active high
+    static DigitalOut  shield_3v3_1v8_sig_trans_ena(D9);   // 0 = disabled (all signals high impedence, 1 = translation active
+    static DigitalOut  mdm_uart1_cts(D10);                 // WNC doesn't utilize RTS/CTS but the pin is connected
+
+
+    //! associations for the controller class to use. Order of pins is critical.
+    static WncGpioPinListK64F wncPinList = { 
+        &mdm_uart2_rx_boot_mode_sel,
+        &mdm_power_on,
+        &mdm_wakeup_in,
+        &mdm_reset,
+        &shield_3v3_1v8_sig_trans_ena,
+        &mdm_uart1_cts
+    };
+
     debugOutput("ENTER connect(apn,user,pass)");
 
     if( m_pwnc == NULL ) {
-        m_pwnc = new WncControllerK64F(&wncPinList, &wnc_io, _debugUart);
+        mdmUart = new  UARTSerial(D12,D11,115200);
+        wnc_io = new WncIO(mdmUart);
+        m_pwnc = new WncControllerK64F(&wncPinList, wnc_io, _debugUart);
         if( !m_pwnc ) {
             debugOutput("FAILED to open WncControllerK64!");
             m_errors = NSAPI_ERROR_DEVICE_ERROR;
@@ -411,7 +493,6 @@ bool WNC14A2AInterface::registered()
 
     if( !m_pwnc ) {
         return (m_errors=NSAPI_ERROR_DEVICE_ERROR);
-        return false;
         }
     CHK_WNCFE((m_pwnc->getWncStatus()==FATAL_FLAG), fail);
 
