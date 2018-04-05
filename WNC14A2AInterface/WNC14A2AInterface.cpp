@@ -142,15 +142,6 @@
 #define debugDump_arry(...)   {/* __VA_ARGS__ */}
 #endif
 
-static WNCSOCKET _sockets[WNC14A2A_SOCKET_COUNT];  //WNC supports 8 open sockets but driver only supports 1 currently
-static TXEVENT   _socTxS[WNC14A2A_SOCKET_COUNT];
-static RXEVENT   _socRxS[WNC14A2A_SOCKET_COUNT];
-static Thread    _smsThread, _eqThread;            //Event Queue thread for SMS and Rx/Tx data
-static Mutex     _pwnc_mutex;                      
-static int       _active_socket = 0;
-
-using namespace WncControllerK64F_fk;            // namespace for the AT controller class use
-
 /*   Constructor
 *
 *  @brief    May be invoked with or without the debug pointer.
@@ -164,7 +155,10 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
  m_debug(0),
  m_pwnc(NULL),
  m_errors(NSAPI_ERROR_OK),
- m_smsmoning(0)
+ m_smsmoning(0),
+ _active_socket(0),
+ mdmUart(D12,D11,115200),
+ wnc_io(&mdmUart)
 {
     _debugUart = dbg;           
     memset(_mac_address,0x00,sizeof(_mac_address));
@@ -187,12 +181,6 @@ WNC14A2AInterface::~WNC14A2AInterface()
 {
     if( m_pwnc )
         delete m_pwnc;  //free the existing WncControllerK64F object
-
-    if( mdmUart )
-        delete mdmUart;
-
-    if( wnc_io )
-        delete wnc_io;
 }
 
 // - - - - - - - 
@@ -341,16 +329,15 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
     // GPIO Pins used to initialize the WNC parts on the Avnet WNC Shield
     //
 
-    static DigitalOut  mdm_uart2_rx_boot_mode_sel(D1);     // on powerup, 0 = boot mode, 1 = normal boot
-    static DigitalOut  mdm_power_on(D2);                   // 0 = modem on, 1 = modem off (hold high for >5 seconds to cycle modem)
-    static DigitalOut  mdm_wakeup_in(D6);                  // 0 = let modem sleep, 1 = keep modem awake -- Note: pulled high on shield
-    static DigitalOut  mdm_reset(D8);                      // active high
-    static DigitalOut  shield_3v3_1v8_sig_trans_ena(D9);   // 0 = disabled (all signals high impedence, 1 = translation active
-    static DigitalOut  mdm_uart1_cts(D10);                 // WNC doesn't utilize RTS/CTS but the pin is connected
-
+    static DigitalOut  mdm_uart2_rx_boot_mode_sel(D1);     //on powerup, 0 = boot mode, 1 = normal boot
+    static DigitalOut  mdm_power_on(D2);                   //0=modem on, 1=modem off (hold high for >5 seconds to cycle modem)
+    static DigitalOut  mdm_wakeup_in(D6);                  //0=let modem sleep, 1=keep modem awake -- Note: pulled high on shield
+    static DigitalOut  mdm_reset(D8);                      //active high
+    static DigitalOut  shield_3v3_1v8_sig_trans_ena(D9);   //0 = disabled (all signals high impedence, 1 = translation active
+    static DigitalOut  mdm_uart1_cts(D10);                 //WNC doesn't utilize RTS/CTS but the pin is connected
 
     //! associations for the controller class to use. Order of pins is critical.
-    static WncGpioPinListK64F wncPinList = { 
+    static WncControllerK64F_fk::WncGpioPinListK64F wncPinList = { 
         &mdm_uart2_rx_boot_mode_sel,
         &mdm_power_on,
         &mdm_wakeup_in,
@@ -362,9 +349,7 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
     debugOutput("ENTER connect(apn,user,pass)");
 
     if( m_pwnc == NULL ) {
-        mdmUart = new  UARTSerial(D12,D11,115200);
-        wnc_io = new WncIO(mdmUart);
-        m_pwnc = new WncControllerK64F(&wncPinList, wnc_io, _debugUart);
+        m_pwnc = new WncControllerK64F_fk::WncControllerK64F(&wncPinList, &wnc_io, _debugUart);
         if( !m_pwnc ) {
             debugOutput("FAILED to open WncControllerK64!");
             m_errors = NSAPI_ERROR_DEVICE_ERROR;

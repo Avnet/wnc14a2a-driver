@@ -435,8 +435,6 @@ private:
     WncIpStats myNetStats;                  //maintaint the network statistics
     WncControllerK64F_fk::WncControllerK64F *m_pwnc; //pointer to the WncController instance
 
-    UARTSerial* mdmUart;
-    WncIO* wnc_io;
     WNCDebug *_debugUart;                     // Serial object for parser to communicate with radio
     char *_fatal_err_loc;                   // holds string containing location of fatal error
     nsapi_error_t m_errors;
@@ -458,6 +456,15 @@ private:
     void _dbOut(const char *format, ...);
     void _dbDump_arry( const uint8_t* data, unsigned int size );
 
+    WNCSOCKET _sockets[WNC14A2A_SOCKET_COUNT];  //WNC supports 8 open sockets but driver only supports 1 currently
+    TXEVENT   _socTxS[WNC14A2A_SOCKET_COUNT];
+    RXEVENT   _socRxS[WNC14A2A_SOCKET_COUNT];
+    Thread    _smsThread, _eqThread;            //Event Queue thread for SMS and Rx/Tx data
+    Mutex     _pwnc_mutex;                      
+    int       _active_socket;
+
+    UARTSerial mdmUart;
+    WncIO wnc_io;
 };
 
 #endif
