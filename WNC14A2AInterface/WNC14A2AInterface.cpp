@@ -796,7 +796,7 @@ int WNC14A2AInterface::socket_send(void *handle, const void *data, unsigned size
                 wnc_queue.call_in(EQ_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
                 return NSAPI_ERROR_WOULD_BLOCK;
                 }
-            //all data sent so fall through to TX_COMPLETE
+            // fall through 
 
         case TX_COMPLETE:
             debugOutput("EXIT socket_send(), sent %d bytes", txsock->m_tx_total_sent);
@@ -874,7 +874,7 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
                 wnc_queue.call_in(EQ_FREQ,mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
                 return NSAPI_ERROR_WOULD_BLOCK;
                 }
-            //got data, fall thru and finish. no need to schedule the background task
+            // fall through 
 
         case DATA_AVAILABLE:
             debugOutput("EXIT socket_recv(),socket %d, return %d bytes",wnc->socket, rxsock->m_rx_return_cnt);
