@@ -157,7 +157,7 @@ WNC14A2AInterface::WNC14A2AInterface(WNCDebug *dbg) :
  m_errors(NSAPI_ERROR_OK),
  m_smsmoning(0),
  _active_socket(0),
- mdmUart(D12,D11,115200),
+ mdmUart(MBED_CONF_WNC14A2A_LIBRARY_WNC_TXD,MBED_CONF_WNC14A2A_LIBRARY_WNC_RXD,115200),
  wnc_io(&mdmUart)
 {
     _debugUart = dbg;           
@@ -328,13 +328,18 @@ nsapi_error_t WNC14A2AInterface::connect(const char *apn, const char *username, 
     //
     // GPIO Pins used to initialize the WNC parts on the Avnet WNC Shield
     //
+    // on powerup, 0 = boot mode, 1 = normal boot
+    // 0=let modem sleep, 1=keep modem awake -- Note: pulled high on shield
+    // active high
+    // 0 = disabled (all signals high impedence, 1 = translation active
+    // WNC doesn't utilize RTS/CTS but the pin is connected
 
-    static DigitalOut  mdm_uart2_rx_boot_mode_sel(D1);     //on powerup, 0 = boot mode, 1 = normal boot
-    static DigitalOut  mdm_power_on(D2);                   //0=modem on, 1=modem off (hold high for >5 seconds to cycle modem)
-    static DigitalOut  mdm_wakeup_in(D6);                  //0=let modem sleep, 1=keep modem awake -- Note: pulled high on shield
-    static DigitalOut  mdm_reset(D8);                      //active high
-    static DigitalOut  shield_3v3_1v8_sig_trans_ena(D9);   //0 = disabled (all signals high impedence, 1 = translation active
-    static DigitalOut  mdm_uart1_cts(D10);                 //WNC doesn't utilize RTS/CTS but the pin is connected
+    static DigitalOut  mdm_uart2_rx_boot_mode_sel(MBED_CONF_WNC14A2A_LIBRARY_WNC_RX_BOOT_SEL);
+    static DigitalOut  mdm_power_on(MBED_CONF_WNC14A2A_LIBRARY_WNC_POWER_ON);
+    static DigitalOut  mdm_wakeup_in(MBED_CONF_WNC14A2A_LIBRARY_WNC_WAKEUP);
+    static DigitalOut  mdm_reset(MBED_CONF_WNC14A2A_LIBRARY_WNC_RESET);
+    static DigitalOut  shield_3v3_1v8_sig_trans_ena(MBED_CONF_WNC14A2A_LIBRARY_WNC_LVLTRANSLATOR);
+    static DigitalOut  mdm_uart1_cts(MBED_CONF_WNC14A2A_LIBRARY_WNC_CTS);
 
     //! associations for the controller class to use. Order of pins is critical.
     static WncControllerK64F_fk::WncGpioPinListK64F wncPinList = { 
