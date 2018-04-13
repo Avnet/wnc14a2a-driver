@@ -41,6 +41,43 @@
 
 #define WNC14A2A_SOCKET_COUNT WncController::MAX_NUM_WNC_SOCKETS 
 
+// If target board does not support Arduino pins, define pins as Not Connected
+#if defined(TARGET_FF_ARDUINO)
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_RX_BOOT_SEL)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_RX_BOOT_SEL                     D1
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_POWER_ON)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_POWER_ON                        D2
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_WAKEUP)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_WAKEUP                          D6
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_RESET)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_RESET                           D8
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_LVLTRANSLATOR)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_LVLTRANSLATOR                   D9
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_CTS)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_CTS                             D10
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_RXD)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_RXD                             D11
+#endif
+#if !defined(MBED_CONF_WNC14A2A_LIBRARY_WNC_TXD)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_TXD                             D12
+#endif
+#else // !defined(TARGET_FF_ARDUINO)
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_RX_BOOT_SEL                     NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_POWER_ON                        NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_WAKEUP                          NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_RESET                           NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_LVLTRANSLATOR                   NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_CTS                             NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_RXD                             NC
+#define MBED_CONF_WNC14A2A_LIBRARY_WNC_TXD                             NC
+#endif // !defined(TARGET_FF_ARDUINO)
+
 typedef struct smsmsg_t {
         string number;
         string date;
