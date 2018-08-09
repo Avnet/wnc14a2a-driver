@@ -85,20 +85,8 @@ namespace WncController_fk {
 /////////////////////////////////////////////////////
 // Static initializers
 /////////////////////////////////////////////////////
-WncController::WncSocketInfo_s WncController::m_sSock[MAX_NUM_WNC_SOCKETS];
-const WncController::WncSocketInfo_s WncController::defaultSockStruct = { 0, false, "192.168.0.1", 80, 0, 25, true, 30 };
 
-WncController::WncState_e WncController::m_sState = WNC_OFF;
-uint16_t WncController::m_sCmdTimeoutMs = WNC_CMD_TIMEOUT_MS;
-string WncController::m_sApnStr = "NULL";
-string WncController::m_sWncStr;
-string WncController::m_FirmwareRevision;
-uint8_t WncController::m_sPowerUpTimeoutSecs = MAX_POWERUP_TIMEOUT;
-bool WncController::m_sDebugEnabled = false;
-bool WncController::m_sMoreDebugEnabled = false;
-bool WncController::m_sCheckNetStatus = false;   // Turn on internet status check between every command
 const char * const WncController::INVALID_IP_STR = "";
-bool WncController::m_sReadyForSMS = false;
 
 
 /**
@@ -152,8 +140,18 @@ const char * WncController::_to_hex_string(uint8_t value)
     return (str);
 }
 
-WncController::WncController(void)
+WncController::WncController(void) :
+        m_sState(WNC_OFF),
+        m_sCmdTimeoutMs(WNC_CMD_TIMEOUT_MS),
+        m_sApnStr("NULL"),
+        m_sPowerUpTimeoutSecs(MAX_POWERUP_TIMEOUT),
+        m_sDebugEnabled(false),
+        m_sMoreDebugEnabled(false),
+        m_sCheckNetStatus(false),   // Turn on internet status check between every command
+        m_sReadyForSMS(false)
 {
+    static const WncController::WncSocketInfo_s defaultSockStruct = { 0, false, "192.168.0.1", 80, 0, 25, true, 30 };
+
     for(unsigned i=0; i<MAX_NUM_WNC_SOCKETS; i++)
         m_sSock[i] = defaultSockStruct;
 }

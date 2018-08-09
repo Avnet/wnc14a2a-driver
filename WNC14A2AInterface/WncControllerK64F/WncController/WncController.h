@@ -616,18 +616,17 @@ private:
         uint16_t timeOutSec;
     };
 
-    static WncSocketInfo_s m_sSock[MAX_NUM_WNC_SOCKETS];
-    static const WncSocketInfo_s defaultSockStruct;
-    static WncState_e m_sState;
-    static uint16_t m_sCmdTimeoutMs;
-    static string m_sApnStr;
-    static string m_sWncStr;
-    static string m_FirmwareRevision;
-    static uint8_t m_sPowerUpTimeoutSecs;
-    static bool m_sDebugEnabled;
-    static bool m_sMoreDebugEnabled;
-    static bool m_sCheckNetStatus;
-    static bool m_sReadyForSMS;
+    WncSocketInfo_s m_sSock[MAX_NUM_WNC_SOCKETS];
+    WncState_e m_sState;
+    uint16_t m_sCmdTimeoutMs;
+    string m_sApnStr;
+    string m_sWncStr;
+    string m_FirmwareRevision;
+    uint8_t m_sPowerUpTimeoutSecs;
+    bool m_sDebugEnabled;
+    bool m_sMoreDebugEnabled;
+    bool m_sCheckNetStatus;
+    bool m_sReadyForSMS;
 };
 
 };  // End namespace WncController_fk
