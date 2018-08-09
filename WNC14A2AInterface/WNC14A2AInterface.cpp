@@ -889,7 +889,7 @@ int WNC14A2AInterface::socket_recv(void *handle, void *data, unsigned size)
 
         case READ_ACTIVE:
         case READ_INIT:
-            rxsock->m_rx_timer    = 0;  //reset the time-out timer
+//jmf            rxsock->m_rx_timer    = 0;  //reset the time-out timer
             return NSAPI_ERROR_WOULD_BLOCK;
 
         default:
