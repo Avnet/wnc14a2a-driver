@@ -89,47 +89,31 @@ namespace WncController_fk {
 const char * const WncController::INVALID_IP_STR = "";
 
 // Implementation of itoa() 
-static char* itoa(int64_t num,   char* str,    int base) 
-{ 
-    int i = 0; 
-    bool isNegative = false; 
-  
-    /* Handle 0 explicitely, otherwise empty string is printed for 0 */
-    if (num == 0) 
-    { 
-        str[i++] = '0'; 
-        str[i] = '\0'; 
-        return str; 
-    } 
-  
-    // In standard itoa(), negative numbers are handled only with  
-    // base 10. Otherwise numbers are considered unsigned. 
-    if (num < 0 && base == 10) 
-    { 
-        isNegative = true; 
-        num = -num; 
-    } 
-  
-    // Process individual digits 
-    while (num != 0) 
-    { 
-        int rem = num % base; 
-        str[i++] = (rem > 9)? (rem-10) + 'a' : rem + '0'; 
-        num = num/base; 
-    } 
-  
-    // If number is negative, append '-' 
-    if (isNegative) 
-        str[i++] = '-'; 
-  
-    str[i] = '\0'; // Append string terminator 
-  
-    // Reverse the string 
-    reverse(str, i); 
-  
-    return str; 
-} 
-
+static char* itoa(int64_t value, char* result, int base)	
+{	
+    // check that the base is valid	
+    if ( base < 2 || base > 36 ) {	
+        *result = '\0';	
+        return result;	
+    }	
+     char* ptr = result, *ptr1 = result, tmp_char;	
+    int64_t tmp_value;	
+     do {	
+        tmp_value = value;	
+        value /= base;	
+        *ptr++ = "zyxwvutsrqponmlkjihgfedcba9876543210123456789abcdefghijklmnopqrstuvwxyz"[35 + (tmp_value - value * base)];	
+    } while ( value );	
+     // Apply negative sign	
+    if ( tmp_value < 0 )	
+        *ptr++ = '-';	
+     *ptr-- = '\0';	
+     while ( ptr1 < ptr ) {	
+        tmp_char = *ptr;	
+        *ptr-- = *ptr1;	
+        *ptr1++ = tmp_char;	
+    }	
+     return result;	
+}
 
 const char * WncController::_to_string(int64_t value)
 {

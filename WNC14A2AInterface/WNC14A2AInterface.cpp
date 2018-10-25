@@ -955,3 +955,12 @@ void WNC14A2AInterface::wnc_eq_event()
     if( !done )  
         wnc_queue.call_in((goSlow?EQ_FREQ_SLOW:EQ_FREQ),mbed::Callback<void()>((WNC14A2AInterface*)this,&WNC14A2AInterface::wnc_eq_event));
 }
+
+#if MBED_CONF_WNC14A2A_PROVIDE_DEFAULT
+
+WNC14A2AInterface *WNC14A2AInterface::get_default_instance() {
+    static WNC14A2AInterface wnc;
+    return &wnc;
+}
+
+#endif
